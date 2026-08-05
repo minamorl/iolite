@@ -1,0 +1,26 @@
+{
+  "name": "iolite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Adversarial AI pull request reviewer as a reusable GitHub Action",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@actions/core": "1.11.1",
+    "@anthropic-ai/sdk": "0.68.0",
+    "@octokit/rest": "21.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@vercel/ncc": "0.38.3",
+    "typescript": "5.7.2"
+  }
+}

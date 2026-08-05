@@ -1,0 +1,22 @@
+{
+  // Type-checking config, including the test files. Kept separate from
+  // tsconfig.json because the two consumers want incompatible settings:
+  //
+  //   - Tests run under `node --test --experimental-strip-types`, which treats
+  //     these files as ESM and does no extension search, so a test importing
+  //     './github' dies with ERR_MODULE_NOT_FOUND. Only './github.ts' resolves,
+  //     and tsc accepts that specifier only with allowImportingTsExtensions.
+  //   - allowImportingTsExtensions requires noEmit, but ncc sets emit on and
+  //     fails the build with TS5096.
+  //
+  // So ncc reads tsconfig.json (no test files, no flag, emit allowed) and the
+  // typecheck reads this one. Production sources import extensionlessly and are
+  // covered by both.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

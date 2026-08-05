@@ -1,0 +1,13 @@
+node_modules/
+lib/
+*.log
+.DS_Store
+.env
+
+# dist/ is deliberately NOT ignored.
+#
+# A JavaScript GitHub Action runs from its bundle: GitHub does not install
+# dependencies or run a build before invoking the Action, so dist/index.js is
+# what actually executes. It is a build artifact that has to be committed.
+#
+# Run `npm run build` and commit the result with every change under src/.

@@ -1,0 +1,154 @@
+name: iolite
+description: |
+  Adversarial AI code reviewer for GitHub Pull Requests, powered by Anthropic Claude.
+
+  Unlike a single-shot reviewer, iolite runs a multi-lens sweep over the diff,
+  then makes independent skeptics try to REFUTE every finding before anything is
+  posted. Findings that cannot survive attack are dropped. It also asks whether
+  the change is the right design at all, given the linked issue.
+
+  It deliberately does not report code style.
+author: minamorl
+branding:
+  icon: 'crosshair'
+  color: 'purple'
+
+inputs:
+  github_token:
+    description: GitHub token used to read the PR and post review comments.
+    required: true
+  anthropic_api_key:
+    description: Anthropic API key. Provide via secrets; never commit it.
+    required: true
+  model:
+    description: Anthropic model id used for every stage.
+    required: false
+    default: 'claude-opus-5'
+  max_output_tokens:
+    description: Max tokens requested per model call.
+    required: false
+    default: '16000'
+
+  # ---------- Review policy ----------
+  project_name:
+    description: Human-readable project name injected into the reviewer's prompts.
+    required: false
+    default: ''
+  prompt_file:
+    description: |
+      Repository-relative path to a Markdown file holding this repo's review
+      policy. Read from the PR's BASE ref (a trusted ref), never from the PR
+      head, so a PR author cannot rewrite the rules they are judged by.
+    required: false
+    default: ''
+  prompt_inline:
+    description: |
+      Inline review policy. Defined in the consumer's workflow file, which only
+      users with write access can change, so this is trusted. Takes precedence
+      over prompt_file.
+    required: false
+    default: ''
+
+  # ---------- Scoping ----------
+  include_paths:
+    description: Newline- or comma-separated path prefixes to review. Empty means everything.
+    required: false
+    default: ''
+  exclude_paths:
+    description: Newline- or comma-separated path prefixes to skip (generated code, lockfiles, vendored trees).
+    required: false
+    default: ''
+
+  # ---------- Adversarial pipeline ----------
+  lenses:
+    description: |
+      Which finder lenses to run, comma-separated. Available:
+      correctness, security, performance, integration, test.
+      Each runs as an independent pass that cannot see the others' output.
+    required: false
+    default: 'correctness,security,performance,integration'
+  adversarial_rounds:
+    description: |
+      Number of independent skeptics that attack each finding. Each skeptic
+      uses a different refutation lens, taken in this order:
+        1 fact         — does the code really say this?
+        2 context      — is it already handled elsewhere?
+        3 impact       — does the consequence actually matter?
+        4 reachability — can control flow even get there?
+        5 precedent    — is this the repository's deliberate convention?
+      Five lenses exist, so this caps at 5; values above it behave as 5. The
+      default of 3 runs the first three. 0 disables the adversary stage
+      entirely (not recommended). Each skeptic costs one model call.
+    required: false
+    default: '3'
+  refute_threshold:
+    description: |
+      How many skeptics must refute a finding for it to be dropped. With 3
+      skeptics, 2 means majority rule; with 5, that is 3. Lower this to be
+      stricter about noise, raise it to let more marginal findings through.
+      Clamped into 1..adversarial_rounds, so raising the round count is what
+      makes room for a higher threshold.
+    required: false
+    default: '2'
+  completeness_pass:
+    description: |
+      Run a second sweep that sees the first round's findings and hunts for
+      what every lens missed. This is where the expensive bugs are found.
+    required: false
+    default: 'true'
+  explore_alternatives:
+    description: |
+      Ask whether a better implementation exists for the problem the linked
+      issue describes. Reported in the review body, never as line comments.
+    required: false
+    default: 'true'
+  max_llm_calls:
+    description: |
+      Hard ceiling on model calls for one review. The pipeline degrades
+      gracefully when it runs out: it posts what it has and says so.
+    required: false
+    default: '16'
+
+  # ---------- Output limits ----------
+  max_comments_per_file:
+    description: Maximum line comments posted for a single file.
+    required: false
+    default: '10'
+  max_comments_total:
+    description: Maximum line comments posted for the whole review.
+    required: false
+    default: '40'
+  max_comment_body_chars:
+    description: Maximum characters per line comment body.
+    required: false
+    default: '700'
+
+  # ---------- Misc ----------
+  review_self:
+    description: Review this Action's own source (dogfooding). Disables path exclusions for src/.
+    required: false
+    default: 'false'
+  debug:
+    description: Emit verbose diagnostics. Raw model output is never logged regardless.
+    required: false
+    default: 'false'
+  pr_number:
+    description: PR number, for workflow_dispatch runs where no PR is in the event payload.
+    required: false
+    default: ''
+
+outputs:
+  review_id:
+    description: Id of the posted GitHub review, when one was posted.
+  comment_count:
+    description: Number of line comments posted.
+  survived_count:
+    description: Findings that survived adversarial verification.
+  refuted_count:
+    description: Findings that were killed by the skeptics.
+  llm_calls:
+    description: Model calls actually made.
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
