@@ -1,0 +1,48 @@
+Copyright (c) 2026 minamorl. All rights reserved.
+
+PROPRIETARY LICENSE
+
+This source code is published in a publicly readable repository for one
+technical reason: a GitHub Action referenced as `uses: minamorl/iolite@v1`
+cannot be resolved from a private repository. Public visibility is a
+consequence of that mechanism. It is NOT a grant of rights, and it is not
+an offer of open-source terms.
+
+PERMITTED WITHOUT PERMISSION
+
+  1. Reading this source code.
+  2. Forking this repository on GitHub, to the extent GitHub's Terms of
+     Service require that forking remain possible for public repositories.
+  3. Use by the copyright holder, and by repositories the copyright holder
+     owns or controls.
+
+NOT PERMITTED WITHOUT PRIOR WRITTEN PERMISSION FROM THE COPYRIGHT HOLDER
+
+  1. Using this software, in whole or in part, for any purpose, including
+     running it as a GitHub Action in any repository you own or control.
+  2. Copying, modifying, merging, publishing, distributing, sublicensing,
+     or selling copies of this software or any part of it.
+  3. Incorporating any part of this software -- including its prompts, its
+     pipeline design, and the text of its review policies -- into another
+     work, product, or service, whether or not that work is distributed.
+  4. Offering this software, or any derivative of it, as a hosted or
+     managed service.
+  5. Using this software or any part of it as training data, evaluation
+     data, or fine-tuning data for a machine learning model.
+
+The prompts in `src/lenses.ts`, `src/adversary.ts`, and `src/alternatives.ts`
+are the substance of this work, not incidental strings. They are covered by
+the restrictions above in the same way the surrounding code is.
+
+Permission may be requested from the copyright holder. Absent a written
+grant, no license is given, and nothing in this file may be read as an
+implied one.
+
+NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

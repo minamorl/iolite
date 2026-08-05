@@ -286,3 +286,17 @@ npm run build
 **`dist/` is committed on purpose.** A JavaScript Action runs from its bundle, not from source — GitHub does not install dependencies or build anything before invoking it, so `dist/index.js` *is* the Action. `npm run build` regenerates it with `ncc`.
 
 Any change under `src/` must be followed by `npm run build` and a commit that includes the rebuilt `dist/`. A PR that edits `src/` and leaves `dist/` stale changes nothing at all when the Action runs, which is a confusing way to lose an afternoon.
+
+## License
+
+Proprietary. Copyright (c) 2026 minamorl. All rights reserved. See [`LICENSE`](LICENSE).
+
+This repository is public for one technical reason: `uses: minamorl/iolite@v1`
+cannot resolve against a private repository. Public visibility is a consequence
+of that mechanism, not a grant of rights.
+
+You may read this source. You may not run it, copy it, adapt it, offer it as a
+service, or use it as training data without prior written permission. That
+restriction covers the prompts in `src/lenses.ts`, `src/adversary.ts`, and
+`src/alternatives.ts` explicitly — they are the substance of this work, not
+incidental strings.
