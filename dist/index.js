@@ -30185,6 +30185,7 @@ const core = __importStar(__nccwpck_require__(7484));
 const sdk_1 = __importDefault(__nccwpck_require__(121));
 // @ts-ignore -- the .ts extension is required by `node --experimental-strip-types`
 const json_repair_ts_1 = __nccwpck_require__(5787);
+const logging_ts_1 = __nccwpck_require__(1338);
 /** Thrown by `generate` when the call budget has no slot left. */
 class BudgetExhaustedError extends Error {
     constructor(message) {
@@ -30280,14 +30281,34 @@ function isRetriableStatus(status, err) {
     return status >= 500;
 }
 /**
- * A log-safe description. Deliberately excludes `message`: API error bodies can
- * echo parts of the request, and the request is someone's source code.
+ * A log-safe description. Deliberately excludes `message` for most statuses:
+ * API error bodies can echo parts of the request, and the request is someone's
+ * source code.
+ *
+ * 4xx request errors are the exception. A 400 means the request itself is
+ * malformed — an invalid model id, a max_tokens outside the model's range, a
+ * bad parameter — and the only thing that identifies which is the body. Hiding
+ * it makes a misconfigured Action fail silently and identically forever, which
+ * is exactly what happened on the first live run: six calls, six 400s, and no
+ * way to tell why without changing the code. Anthropic's validation errors
+ * describe the parameter, not the prompt; the message still goes through
+ * `redact` and is truncated, so a credential echoed back cannot leak into a
+ * public Actions log.
  */
+const DIAGNOSABLE_STATUSES = new Set([400, 401, 403, 404, 413, 422]);
 function describeError(err) {
     const e = err;
     const name = typeof e?.name === 'string' && e.name ? e.name : 'Error';
     const status = statusOf(err);
-    return status === null ? name : `${name} status=${status}`;
+    if (status === null)
+        return name;
+    const base = `${name} status=${status}`;
+    if (!DIAGNOSABLE_STATUSES.has(status))
+        return base;
+    const raw = typeof e?.message === 'string' ? e.message : '';
+    if (!raw)
+        return base;
+    return `${base}: ${(0, logging_ts_1.redact)(raw).slice(0, 300)}`;
 }
 /**
  * Join every text block in a response. Handles the shapes that break naive
