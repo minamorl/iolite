@@ -27774,7 +27774,7 @@ class GitHubClient {
      * string. Trusting the type here would hand a `[object Object]` to the
      * diff parser and produce a review of nothing, so the shape is asserted.
      */
-    async getPRDiff(prNumber) {
+    async getPRDiff(prNumber, expectedHeadSha) {
         let data;
         try {
             const res = await this.octokit.pulls.get({
@@ -27791,7 +27791,14 @@ class GitHubClient {
             throw new Error(`iolite: fetching the diff for PR #${prNumber} returned ${data === null ? 'null' : typeof data} instead of a raw unified diff. ` +
                 `The request must be made with mediaType: { format: 'diff' } and the response used as a string.`);
         }
+        if (expectedHeadSha)
+            await this.assertCurrentHead(prNumber, expectedHeadSha);
         return data;
+    }
+    async assertCurrentHead(prNumber, expectedHeadSha) {
+        if ((await this.getPRInfo(prNumber)).headSha !== expectedHeadSha) {
+            throw new Error(`iolite: PR #${prNumber} head changed during review; retry the current commit.`);
+        }
     }
     async getPRInfo(prNumber) {
         try {
@@ -28021,6 +28028,8 @@ class GitHubClient {
      * for — the Action's output would otherwise claim comments nobody can see.
      */
     async postReview(prNumber, args) {
+        if (args.commitId)
+            await this.assertCurrentHead(prNumber, args.commitId);
         const body = args.body ?? '';
         const comments = (args.comments ?? []).filter(isPostableComment);
         if (comments.length === 0) {
@@ -28028,6 +28037,7 @@ class GitHubClient {
                 const res = await this.octokit.pulls.createReview({
                     ...this.base,
                     pull_number: prNumber,
+                    commit_id: args.commitId,
                     body,
                     event: 'COMMENT',
                 });
@@ -28041,6 +28051,7 @@ class GitHubClient {
             const res = await this.octokit.pulls.createReview({
                 ...this.base,
                 pull_number: prNumber,
+                commit_id: args.commitId,
                 body,
                 event: 'COMMENT',
                 comments: comments.map((c) => ({
@@ -28058,19 +28069,20 @@ class GitHubClient {
             }
             core.warning(`iolite: GitHub rejected the batched review on PR #${prNumber} (${describeError(err)}). ` +
                 `Falling back to posting the summary and each comment separately.`);
-            return this.postReviewPiecewise(prNumber, body, comments);
+            return this.postReviewPiecewise(prNumber, body, comments, args.commitId);
         }
     }
     /**
      * Degraded path for a 422. Posts the summary alone, then each line comment
      * individually, dropping only the ones GitHub refuses.
      */
-    async postReviewPiecewise(prNumber, body, comments) {
+    async postReviewPiecewise(prNumber, body, comments, commitId) {
         let reviewId = 0;
         try {
             const res = await this.octokit.pulls.createReview({
                 ...this.base,
                 pull_number: prNumber,
+                commit_id: commitId,
                 body,
                 event: 'COMMENT',
             });
@@ -28080,9 +28092,10 @@ class GitHubClient {
             core.warning(`iolite: could not post the review summary on PR #${prNumber} (${describeError(err)}).`);
         }
         // createReviewComment needs the commit the comment is anchored to.
-        let headSha = '';
+        let headSha = commitId || '';
         try {
-            headSha = (await this.getPRInfo(prNumber)).headSha;
+            if (!headSha)
+                headSha = (await this.getPRInfo(prNumber)).headSha;
         }
         catch (err) {
             core.warning(`iolite: could not resolve the head SHA for PR #${prNumber} (${describeError(err)}); ` +
@@ -28341,7 +28354,7 @@ async function run() {
         (0, logging_1.info)('Force rerun requested; duplicate suppression bypassed.');
     }
     const [rawDiff, policy] = await Promise.all([
-        gh.getPRDiff(prNumber),
+        gh.getPRDiff(prNumber, prInfo.headSha),
         loadPolicy(gh, cfg, prInfo.baseBranch),
     ]);
     const parsedAll = (0, diff_parser_1.parseUnifiedDiff)(rawDiff);
@@ -28370,7 +28383,11 @@ async function run() {
         selfReview: cfg.reviewSelf,
     });
     const review = (0, render_1.renderReview)(result, cfg, prInfo.headSha, model);
-    const posted = await gh.postReview(prNumber, { body: review.body, comments: review.comments });
+    const posted = await gh.postReview(prNumber, {
+        body: review.body,
+        comments: review.comments,
+        commitId: prInfo.headSha,
+    });
     if (!(0, review_status_1.isReviewComplete)(result)) {
         core.setFailed('iolite review incomplete: one or more stages failed. No completed-review marker was recorded; this commit can be retried.');
     }
