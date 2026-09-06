@@ -918,3 +918,37 @@ test('postReview posts a body-only review when every comment was unusable', asyn
   assert.deepEqual(res, { id: 8, commentCount: 0 });
   assert.equal(fake.paramsFor('pulls.createReview')[0].comments, undefined);
 });
+
+test('a head changed during diff retrieval is rejected before model calls', async () => {
+  const { gh } = client({
+    'pulls.get': async (params) => params.mediaType
+      ? { data: 'diff --git a/a b/a' }
+      : { data: prPayload({ head: { ref: 'feat/1', sha: 'NEW' } }) },
+  });
+  await assert.rejects(gh.getPRDiff(9, 'OLD'), /head changed during review/);
+});
+
+test('a stale result never posts a review onto the newer head', async () => {
+  const { gh, fake } = client({
+    'pulls.get': async () => ({ data: prPayload({ head: { ref: 'feat/1', sha: 'NEW' } }) }),
+  });
+  await assert.rejects(gh.postReview(9, {body: 'old result', comments: [], commitId: 'OLD'}), /head changed/);
+  assert.equal(fake.countOf('pulls.createReview'), 0);
+});
+
+test('batch fallback keeps the reviewed SHA for summary and every line comment', async () => {
+  let calls = 0;
+  const { gh, fake } = client({
+    'pulls.get': async () => ({ data: prPayload({ head: { ref: 'feat/1', sha: ++calls === 1 ? 'REVIEWED' : 'NEW' } }) }),
+    'pulls.createReview': async params => {
+      if (params.comments) throw httpError(422, 'bad anchor');
+      return {data: {id: 1}};
+    },
+    'pulls.createReviewComment': async () => ({data: {id: 2}}),
+  });
+  await gh.postReview(9, {body: 'result', comments: COMMENTS, commitId: 'REVIEWED'});
+  for (const params of [...fake.paramsFor('pulls.createReview'), ...fake.paramsFor('pulls.createReviewComment')]) {
+    assert.equal(params.commit_id, 'REVIEWED');
+  }
+  assert.equal(calls, 1);
+});

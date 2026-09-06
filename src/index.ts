@@ -186,7 +186,7 @@ async function run(): Promise<void> {
   }
 
   const [rawDiff, policy] = await Promise.all([
-    gh.getPRDiff(prNumber),
+    gh.getPRDiff(prNumber, prInfo.headSha),
     loadPolicy(gh, cfg, prInfo.baseBranch),
   ]);
 
@@ -228,7 +228,11 @@ async function run(): Promise<void> {
   });
 
   const review = renderReview(result, cfg, prInfo.headSha, model);
-  const posted = await gh.postReview(prNumber, { body: review.body, comments: review.comments });
+  const posted = await gh.postReview(prNumber, {
+    body: review.body,
+    comments: review.comments,
+    commitId: prInfo.headSha,
+  });
 
   if (!isReviewComplete(result)) {
     core.setFailed('iolite review incomplete: one or more stages failed. No completed-review marker was recorded; this commit can be retried.');

@@ -138,6 +138,8 @@ inputs:
     default: ''
 
 outputs:
+  review_complete:
+    description: Whether every configured review stage completed successfully.
   review_id:
     description: Id of the posted GitHub review, when one was posted.
   comment_count:

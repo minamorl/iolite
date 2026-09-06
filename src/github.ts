@@ -158,7 +158,7 @@ export class GitHubClient {
    * string. Trusting the type here would hand a `[object Object]` to the
    * diff parser and produce a review of nothing, so the shape is asserted.
    */
-  async getPRDiff(prNumber: number): Promise<string> {
+  async getPRDiff(prNumber: number, expectedHeadSha?: string): Promise<string> {
     let data: unknown;
     try {
       const res = await this.octokit.pulls.get({
@@ -179,7 +179,14 @@ export class GitHubClient {
           `The request must be made with mediaType: { format: 'diff' } and the response used as a string.`,
       );
     }
+    if (expectedHeadSha) await this.assertCurrentHead(prNumber, expectedHeadSha);
     return data;
+  }
+
+  async assertCurrentHead(prNumber: number, expectedHeadSha: string): Promise<void> {
+    if ((await this.getPRInfo(prNumber)).headSha !== expectedHeadSha) {
+      throw new Error(`iolite: PR #${prNumber} head changed during review; retry the current commit.`);
+    }
   }
 
   async getPRInfo(prNumber: number): Promise<PRInfo> {
@@ -425,8 +432,9 @@ export class GitHubClient {
    */
   async postReview(
     prNumber: number,
-    args: { body: string; comments: LineComment[] },
+    args: { body: string; comments: LineComment[]; commitId?: string },
   ): Promise<{ id: number; commentCount: number }> {
+    if (args.commitId) await this.assertCurrentHead(prNumber, args.commitId);
     const body = args.body ?? '';
     const comments = (args.comments ?? []).filter(isPostableComment);
 
@@ -435,6 +443,7 @@ export class GitHubClient {
         const res = await this.octokit.pulls.createReview({
           ...this.base,
           pull_number: prNumber,
+        commit_id: args.commitId,
           body,
           event: 'COMMENT',
         });
@@ -448,6 +457,7 @@ export class GitHubClient {
       const res = await this.octokit.pulls.createReview({
         ...this.base,
         pull_number: prNumber,
+        commit_id: args.commitId,
         body,
         event: 'COMMENT',
         comments: comments.map((c) => ({
@@ -466,7 +476,7 @@ export class GitHubClient {
         `iolite: GitHub rejected the batched review on PR #${prNumber} (${describeError(err)}). ` +
           `Falling back to posting the summary and each comment separately.`,
       );
-      return this.postReviewPiecewise(prNumber, body, comments);
+      return this.postReviewPiecewise(prNumber, body, comments, args.commitId);
     }
   }
 
@@ -478,12 +488,14 @@ export class GitHubClient {
     prNumber: number,
     body: string,
     comments: LineComment[],
+    commitId?: string,
   ): Promise<{ id: number; commentCount: number }> {
     let reviewId = 0;
     try {
       const res = await this.octokit.pulls.createReview({
         ...this.base,
         pull_number: prNumber,
+        commit_id: commitId,
         body,
         event: 'COMMENT',
       });
@@ -495,9 +507,9 @@ export class GitHubClient {
     }
 
     // createReviewComment needs the commit the comment is anchored to.
-    let headSha = '';
+    let headSha = commitId || '';
     try {
-      headSha = (await this.getPRInfo(prNumber)).headSha;
+      if (!headSha) headSha = (await this.getPRInfo(prNumber)).headSha;
     } catch (err) {
       core.warning(
         `iolite: could not resolve the head SHA for PR #${prNumber} (${describeError(err)}); ` +
