@@ -6,6 +6,7 @@ import { loadConfig, ReviewerConfig } from './config';
 import { parseUnifiedDiff, filterByPaths, renderDiffForPrompt } from './diff-parser';
 import { runPipeline } from './pipeline';
 import { renderReview } from './render';
+import { isReviewComplete } from './review-status';
 import { isReviewTriggerAllowed, describePermissionDenial } from './permission';
 import { hasReviewedSha, isForceRerunRequested } from './dedupe';
 import { normalizePolicyPath, summarizePolicySource } from './policy-loader';
@@ -229,6 +230,10 @@ async function run(): Promise<void> {
   const review = renderReview(result, cfg, prInfo.headSha, model);
   const posted = await gh.postReview(prNumber, { body: review.body, comments: review.comments });
 
+  if (!isReviewComplete(result)) {
+    core.setFailed('iolite review incomplete: one or more stages failed. No completed-review marker was recorded; this commit can be retried.');
+  }
+  core.setOutput('review_complete', isReviewComplete(result));
   core.setOutput('review_id', posted.id);
   core.setOutput('comment_count', posted.commentCount);
   core.setOutput('survived_count', result.stats.survived);

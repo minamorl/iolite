@@ -176,6 +176,7 @@ function stats(over: Partial<PipelineStats> = {}): PipelineStats {
     llmCalls: 6,
     lensesRun: ['correctness', 'security'],
     lensesFailed: [],
+    failedStages: [],
     rawFindings: 0,
     anchorDropped: 0,
     duplicatesMerged: 0,
@@ -592,4 +593,18 @@ test('a dissent reason full of backticks is truncated without unbalancing the co
   // The reason is clipped rather than pasted whole.
   assert.equal(body.includes('x'.repeat(300)), false);
   assert.ok(body.endsWith('judge it yourself._'), body.slice(-80));
+});
+
+test('failed scrutiny cannot claim low risk, a clean diff, or a completed SHA', async () => {
+  for (const partial of [
+    { lensesRun: [], lensesFailed: ['correctness', 'security'] },
+    { lensesFailed: ['correctness'] },
+    { skepticsFailed: ['fact'] },
+    { failedStages: ['completeness'] },
+  ]) {
+    const r = await render(result({ summary: {summary: 'No findings.', riskLevel: 'low'}, stats: stats(partial) }));
+    assert.match(r.body, /Review incomplete/);
+    assert.match(r.body, /Risk:\*\* unknown/);
+    assert.doesNotMatch(r.body, /🟢 low|No findings\.|iolite:reviewed-sha=/);
+  }
 });
