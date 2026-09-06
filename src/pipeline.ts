@@ -115,6 +115,7 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
     llmCalls: 0,
     lensesRun: [],
     lensesFailed: [],
+    failedStages: [],
     rawFindings: 0,
     anchorDropped: 0,
     duplicatesMerged: 0,
@@ -147,7 +148,7 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
   let round1: Finding[] = [];
   lensResults.forEach((res, i) => {
     const lens = cfg.lenses[i];
-    if (res === null) {
+    if (!res || !Array.isArray(res.findings)) {
       stats.lensesFailed.push(lens);
       return;
     }
@@ -169,6 +170,10 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
       `${round1.length} findings after anchoring and dedupe`
   );
 
+  if (stats.lensesRun.length === 0) {
+    throw new Error('Review incomplete: no finder lens returned usable findings. Check API credentials, credit balance and model configuration; this commit remains eligible for retry.');
+  }
+
   // ---- Stage 2: completeness critic --------------------------------------
   // Sees round one and hunts for what every lens missed. Run even when round
   // one is empty: "nothing found" is exactly the case where a second look pays.
@@ -177,7 +182,7 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
     const critic = await llm.generateJson<FindingsResponse>(
       buildCompletenessCall(finderCtx, round1)
     );
-    if (critic) {
+    if (critic && Array.isArray(critic.findings)) {
       const extra = parseFindings(critic.findings, 'completeness');
       stats.rawFindings += extra.length;
       const anchored2 = anchorAll(extra, parsed);
@@ -187,11 +192,13 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
       allFindings = rekey(combined.merged, 'f');
       info(`completeness: +${anchored2.anchored.length} raw, ${allFindings.length} total`);
     } else {
+      stats.failedStages.push('completeness');
       warn('completeness pass produced nothing usable; continuing with round one');
       allFindings = rekey(round1, 'f');
     }
   } else {
     allFindings = rekey(round1, 'f');
+    if (cfg.completenessPass) stats.failedStages.push('completeness');
   }
 
   // ---- Stage 3 & 4: adversarial verification, and the design question -----
@@ -239,7 +246,7 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
   const verdicts: Verdict[] = [];
   skepticLenses.forEach((lens, i) => {
     const res = combinedResults[i] as VerdictsResponse | null;
-    if (res === null) {
+    if (!res || !Array.isArray(res.verdicts)) {
       stats.skepticsFailed.push(lens);
       warn(`skeptic '${lens}' failed; its votes are absent (findings are not saved by default)`);
       return;
@@ -251,6 +258,10 @@ export async function runPipeline(deps: PipelineDeps): Promise<PipelineResult> {
   const altRes = alternativesCall
     ? (combinedResults[skepticCalls.length] as AlternativesResponse | null)
     : null;
+
+  if (alternativesCall && (!altRes || !Array.isArray(altRes.alternatives))) {
+    stats.failedStages.push('alternatives');
+  }
 
   const alternatives: Alternative[] = altRes ? parseAlternatives(altRes.alternatives) : [];
 

@@ -143,3 +143,8 @@ test('missing, null, and empty inputs mean no rerun', () => {
     false,
   );
 });
+
+test('legacy zero-lens failure markers do not suppress a retry', () => {
+  const sha = 'abcdef123456';
+  assert.equal(hasReviewedSha([`| lenses run | — |\n${buildReviewMarker(sha)}`], sha), false);
+});

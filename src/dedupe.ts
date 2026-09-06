@@ -48,6 +48,8 @@ export function hasReviewedSha(existingReviewBodies: string[], headSha: string):
 
   for (const body of existingReviewBodies) {
     if (typeof body !== 'string' || body.length === 0) continue;
+    // Older versions marked total API failures as completed reviews.
+    if (/\| lenses run \| (?:—|-) \|/.test(body) || body.includes('**Review incomplete.**')) continue;
     markerRe.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = markerRe.exec(body)) !== null) {

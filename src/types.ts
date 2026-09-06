@@ -104,6 +104,7 @@ export interface PipelineStats {
   llmCalls: number;
   lensesRun: string[];
   lensesFailed: string[];
+  failedStages: string[];
   rawFindings: number;
   anchorDropped: number;
   duplicatesMerged: number;

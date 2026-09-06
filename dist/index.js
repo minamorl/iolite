@@ -26988,6 +26988,9 @@ function hasReviewedSha(existingReviewBodies, headSha) {
     for (const body of existingReviewBodies) {
         if (typeof body !== 'string' || body.length === 0)
             continue;
+        // Older versions marked total API failures as completed reviews.
+        if (/\| lenses run \| (?:—|-) \|/.test(body) || body.includes('**Review incomplete.**'))
+            continue;
         markerRe.lastIndex = 0;
         let match;
         while ((match = markerRe.exec(body)) !== null) {
@@ -28186,6 +28189,7 @@ const config_1 = __nccwpck_require__(2973);
 const diff_parser_1 = __nccwpck_require__(6290);
 const pipeline_1 = __nccwpck_require__(5165);
 const render_1 = __nccwpck_require__(7055);
+const review_status_1 = __nccwpck_require__(1382);
 const permission_1 = __nccwpck_require__(8924);
 const dedupe_1 = __nccwpck_require__(1360);
 const policy_loader_1 = __nccwpck_require__(8937);
@@ -28367,6 +28371,10 @@ async function run() {
     });
     const review = (0, render_1.renderReview)(result, cfg, prInfo.headSha, model);
     const posted = await gh.postReview(prNumber, { body: review.body, comments: review.comments });
+    if (!(0, review_status_1.isReviewComplete)(result)) {
+        core.setFailed('iolite review incomplete: one or more stages failed. No completed-review marker was recorded; this commit can be retried.');
+    }
+    core.setOutput('review_complete', (0, review_status_1.isReviewComplete)(result));
     core.setOutput('review_id', posted.id);
     core.setOutput('comment_count', posted.commentCount);
     core.setOutput('survived_count', result.stats.survived);
@@ -30822,6 +30830,7 @@ async function runPipeline(deps) {
         llmCalls: 0,
         lensesRun: [],
         lensesFailed: [],
+        failedStages: [],
         rawFindings: 0,
         anchorDropped: 0,
         duplicatesMerged: 0,
@@ -30851,7 +30860,7 @@ async function runPipeline(deps) {
     let round1 = [];
     lensResults.forEach((res, i) => {
         const lens = cfg.lenses[i];
-        if (res === null) {
+        if (!res || !Array.isArray(res.findings)) {
             stats.lensesFailed.push(lens);
             return;
         }
@@ -30867,13 +30876,16 @@ async function runPipeline(deps) {
     round1 = rekey(merged1.merged, 'r1');
     (0, logging_1.info)(`finder: ${stats.lensesRun.length}/${cfg.lenses.length} lenses ok, ` +
         `${round1.length} findings after anchoring and dedupe`);
+    if (stats.lensesRun.length === 0) {
+        throw new Error('Review incomplete: no finder lens returned usable findings. Check API credentials, credit balance and model configuration; this commit remains eligible for retry.');
+    }
     // ---- Stage 2: completeness critic --------------------------------------
     // Sees round one and hunts for what every lens missed. Run even when round
     // one is empty: "nothing found" is exactly the case where a second look pays.
     let allFindings = round1;
     if (cfg.completenessPass && !llm.budgetExhausted()) {
         const critic = await llm.generateJson((0, lenses_1.buildCompletenessCall)(finderCtx, round1));
-        if (critic) {
+        if (critic && Array.isArray(critic.findings)) {
             const extra = (0, lenses_1.parseFindings)(critic.findings, 'completeness');
             stats.rawFindings += extra.length;
             const anchored2 = anchorAll(extra, parsed);
@@ -30884,12 +30896,15 @@ async function runPipeline(deps) {
             (0, logging_1.info)(`completeness: +${anchored2.anchored.length} raw, ${allFindings.length} total`);
         }
         else {
+            stats.failedStages.push('completeness');
             (0, logging_1.warn)('completeness pass produced nothing usable; continuing with round one');
             allFindings = rekey(round1, 'f');
         }
     }
     else {
         allFindings = rekey(round1, 'f');
+        if (cfg.completenessPass)
+            stats.failedStages.push('completeness');
     }
     // ---- Stage 3 & 4: adversarial verification, and the design question -----
     // These are independent, so they run together. Alternatives also carries the
@@ -30928,7 +30943,7 @@ async function runPipeline(deps) {
     const verdicts = [];
     skepticLenses.forEach((lens, i) => {
         const res = combinedResults[i];
-        if (res === null) {
+        if (!res || !Array.isArray(res.verdicts)) {
             stats.skepticsFailed.push(lens);
             (0, logging_1.warn)(`skeptic '${lens}' failed; its votes are absent (findings are not saved by default)`);
             return;
@@ -30939,6 +30954,9 @@ async function runPipeline(deps) {
     const altRes = alternativesCall
         ? combinedResults[skepticCalls.length]
         : null;
+    if (alternativesCall && (!altRes || !Array.isArray(altRes.alternatives))) {
+        stats.failedStages.push('alternatives');
+    }
     const alternatives = altRes ? (0, alternatives_1.parseAlternatives)(altRes.alternatives) : [];
     // ---- Stage 5: judge ----------------------------------------------------
     const judged = (0, adversary_1.judge)(allFindings, verdicts, advCfg);
@@ -31103,6 +31121,7 @@ exports.renderReview = renderReview;
 const limits_1 = __nccwpck_require__(2732);
 const alternatives_1 = __nccwpck_require__(9835);
 const dedupe_1 = __nccwpck_require__(1360);
+const review_status_ts_1 = __nccwpck_require__(1382);
 const adversary_1 = __nccwpck_require__(4428);
 const SEVERITY_LABEL = {
     critical: '🔴 critical',
@@ -31167,15 +31186,16 @@ function renderReview(result, cfg, headSha, model) {
         maxCommentsTotal: cfg.maxCommentsTotal,
         maxCommentBodyChars: cfg.maxCommentBodyChars,
     });
+    const complete = (0, review_status_ts_1.isReviewComplete)(result);
     const s = result.stats;
     const parts = [];
     parts.push('## iolite review');
     parts.push('');
-    parts.push(result.summary.summary);
+    parts.push(complete ? result.summary.summary : '**Review incomplete.** Failed stages prevent a risk assessment; retry after resolving the reported errors.');
     parts.push('');
-    parts.push(`**Risk:** ${RISK_BADGE[result.summary.riskLevel]}`);
+    parts.push(complete ? `**Risk:** ${RISK_BADGE[result.summary.riskLevel]}` : '**Risk:** unknown');
     parts.push('');
-    if (result.survived.length === 0) {
+    if (complete && result.survived.length === 0) {
         parts.push(s.rawFindings > 0
             ? `No findings survived adversarial verification. ${s.rawFindings} candidate(s) were raised ` +
                 `and all of them were refuted — either the code does not say what the finder claimed, ` +
@@ -31196,6 +31216,9 @@ function renderReview(result, cfg, headSha, model) {
         const more = s.truncatedFiles.length > 8 ? ` (+${s.truncatedFiles.length - 8} more)` : '';
         notices.push(`⚠️ **Partial review.** The diff exceeded the prompt budget, so these files were ` +
             `reviewed incompletely or not at all: ${names}${more}.`);
+    }
+    if (s.failedStages.length > 0) {
+        notices.push(`⚠️ **Incomplete stages:** ${s.failedStages.join(', ')}.`);
     }
     if (s.lensesFailed.length > 0) {
         notices.push(`⚠️ **Reduced coverage.** These lenses failed and contributed nothing: ` +
@@ -31258,8 +31281,26 @@ function renderReview(result, cfg, headSha, model) {
     parts.push('');
     parts.push('</details>');
     parts.push('');
-    parts.push((0, dedupe_1.buildReviewMarker)(headSha));
+    if (complete)
+        parts.push((0, dedupe_1.buildReviewMarker)(headSha));
     return { body: parts.join('\n'), comments: limited.kept, limitResult: limited };
+}
+
+
+/***/ }),
+
+/***/ 1382:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isReviewComplete = isReviewComplete;
+/** Only completed scrutiny can suppress retries or report a clean risk result. */
+function isReviewComplete(result) {
+    const s = result.stats;
+    return s.lensesRun.length > 0 && s.lensesFailed.length === 0 &&
+        s.skepticsFailed.length === 0 && s.failedStages.length === 0;
 }
 
 

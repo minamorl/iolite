@@ -580,30 +580,14 @@ test('a lens that returns nothing usable is recorded and the others still count'
   assert.equal(result.stats.rawFindings, 2);
 });
 
-test('every lens failing still produces a result, and it says so', async () => {
+test('every lens failing stops before further calls or a review can be posted', async () => {
   const { llm, deps } = harness({
-    'lens:correctness': null,
-    'lens:security': null,
-    'lens:completeness': null,
-    alternatives: null,
+    'lens:correctness': null, 'lens:security': null,
   });
-
-  const result = await runPipeline(deps);
-
-  assert.deepEqual(result.stats.lensesRun, []);
-  assert.deepEqual(result.stats.lensesFailed, ['correctness', 'security']);
-  assert.equal(result.stats.rawFindings, 0);
-  assert.equal(result.survived.length, 0);
-  assert.equal(result.killed.length, 0);
-  assert.deepEqual(result.alternatives, []);
-  // No findings means nothing for a skeptic to attack.
-  assert.equal(llm.labels().some((l) => l.startsWith('skeptic:')), false);
-  // The summary is the pipeline's own, and it does not claim the diff is clean
-  // on the strength of a total model failure.
-  assert.ok(result.summary.summary.includes(PR.title), result.summary.summary);
-  assert.ok(result.summary.summary.includes('No findings survived'), result.summary.summary);
-  assert.equal(result.summary.riskLevel, 'low');
+  await assert.rejects(runPipeline(deps), /Review incomplete: no finder lens/);
+  assert.deepEqual(llm.labels(), ['lens:correctness', 'lens:security']);
 });
+
 
 // ---------------------------------------------------------------------------
 // dedupe
